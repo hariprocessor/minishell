@@ -12,8 +12,9 @@
 int count(char *ptr, char c);
 void reverse(char *b, char *save);
 void pipe_exec(int cnt, char * save_buffer, char * buffer);
+void redirect(char * buffer, char * newfile, int red);
 int redirection(char *buffer){
-  if(strstr(buffer, ">") != NULL)
+  if(strstr(buffer, ">") != NULL && strstr(buffer, ">>") == NULL)
     return 1;
   else if(strstr(buffer, ">>") != NULL)
     return 2;
@@ -28,7 +29,7 @@ int redirection(char *buffer){
 int main(){
   char pipebuffer[BUFSIZE];
   int cnt;
-
+  char *arg[ARGSIZE];
   char buffer[BUFSIZE];
   char save_buffer[BUFSIZE];
   int amper = 0;
@@ -50,56 +51,42 @@ int main(){
       amper = 1;
     else
       amper = 0;
-    
+   
     if(fork() == 0){
-      /* newfile string */
-      
-      ptr = strtok(buffer, " ><!\n");
-      ptr = strtok(NULL, " ><!\n");
-      sprintf(newfile, "%s%s", "./", ptr);
-      strcpy(buffer, save_buffer);
       /* redirection of IO */
       if((red = redirection(buffer)) != 0){
-	/* > */
-	if(red == 1){
-	  fd = creat(newfile, FMASK);
+	ptr = strtok(buffer, " ><!\n");
+	i = 0;
+	while(ptr != NULL){
+	  i++;
+	  ptr = strtok(NULL, " ><!\n");
 	}
-	/* >> */
-	else if(red == 2){
-	  if(0 == access(newfile, F_OK)){
-	    fd = open(newfile, O_WRONLY|O_APPEND);
-	  }
-	  else {
-	    fd = creat(newfile, 0644);
-	  }
-	}
-	/* >! */
-	else if(red == 3){
-	  if(0 == access(newfile, F_OK)){	  
-	    /* append code nope */
-	  }
-	  else{
-	    fd = creat(newfile, 0644);
-	  }
-	}
-	/* < */
-	if(fd == -1){
-	  printf("Cannot open file !");
-	}
-	//	close(1);
-	//	dup(fd);
-	//	close(fd);
-      }
-      
+	strcpy(buffer, save_buffer);
+	ptr = strtok(buffer, " ><!\n");
+	for(j = 0; j < i-1; j++)
+	  ptr = strtok(NULL, " ><!\n");
+	sprintf(newfile, "%s%s", "./", ptr);
+	strcpy(buffer, save_buffer);
+	redirect(buffer, newfile, red);
+      }      
       /* piping */
-      /*
-	printf("buffer : %s\n", buffer);
-	printf("save_buffer : %s\n", save_buffer);
-	printf("newfile : %s\n", newfile);
-      */
-      if(strstr(buffer, "|")){
+      else if(strstr(buffer, "|")){
 	cnt = count(save_buffer, '|');
 	pipe_exec(cnt, save_buffer, buffer);
+      }
+
+      else{
+	if(fork() == 0){
+	  ptr = strtok(buffer, " ");
+	  j= 0;
+	  while(ptr != NULL){
+	    arg[j] = ptr;
+	    j++;
+	    ptr = strtok(NULL, " ");
+	  }
+	  arg[j] = NULL;
+	  execvp(arg[0], arg);
+	}
       }
     }
     fflush(stdin);
@@ -123,14 +110,12 @@ void pipe_exec(int cnt, char * save_buffer, char * buffer){
   for(i = 0; i < cnt+1; i++){
     ptr = strtok(buffer, "|\n");
 
+
     for(j = 0; j < cnt-i; j++){
       ptr = strtok(NULL, "|\n");
     }
 
-    //fprintf(stderr, "@@@[%d]ptr : %s\n", i, ptr);
     if(fork() == 0){
-      printf("i : %d\n", i);
-      /* ls | grep 1 | grep 2*/
 
       if(i == cnt){
   	close(1);
@@ -146,6 +131,10 @@ void pipe_exec(int cnt, char * save_buffer, char * buffer){
   	close(1);
   	dup(fildes[i-1][1]);
       }
+      for(j = 0; j < cnt; j++){
+	close(fildes[j][0]);
+	close(fildes[j][1]);
+      }
 
       sprintf(buffer, "%s", ptr);
       ptr = strtok(buffer, " ");
@@ -155,9 +144,10 @@ void pipe_exec(int cnt, char * save_buffer, char * buffer){
   	j++;
   	ptr = strtok(NULL, " ");
       }
-      fprintf(stderr, "arg[0] : %s\n", arg[0]);
+      arg[j] = NULL;
       execvp(arg[0], arg);
     }
+
     sprintf(buffer, "%s", save_buffer);
   }
 }
@@ -196,3 +186,58 @@ int count(char *ptr, char c){
   return i;
 }
 
+void redirect(char * buffer, char * newfile, int red){
+  char * ptr;
+  int fd;
+  char *arg[10];
+  int j;
+  if(fork() == 0){
+    /* > */
+    if(red == 1){
+
+      fd = creat(newfile, FMASK);
+    }
+    /* >> */
+    else if(red == 2){
+      if(0 == access(newfile, F_OK)){
+	fd = open(newfile, O_WRONLY|O_APPEND);
+      }
+      else {
+	fd = creat(newfile, 0644);
+      }
+    }
+    /* >! */
+    else if(red == 3){
+      if(0 == access(newfile, F_OK)){	  
+	/* append code nope */
+      }
+      else{
+	fd = creat(newfile, FMASK);
+      }
+    }
+    /* < */
+    if(fd == -1){
+      printf("Cannot open file !");
+      exit(0);
+    }
+
+    close(1);
+    dup(fd);
+    close(fd);
+
+    ptr = strtok(buffer, "><!\n");
+    ptr = strtok(buffer, " ");
+    j= 0;
+    while(ptr != NULL){
+      arg[j] = ptr;
+      j++;
+
+      ptr = strtok(NULL, " ");
+    }
+
+    arg[j] = NULL;
+    execvp(arg[0], arg);
+  }
+
+
+}
