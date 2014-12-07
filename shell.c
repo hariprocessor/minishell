@@ -8,9 +8,10 @@
 #define MAX_PATH 4096
 #define FMASK 0644
 #define ARGSIZE 10
-void pipe_exec(char *buffer, char *ptr);
+
 int count(char *ptr, char c);
 void reverse(char *b, char *save);
+void pipe_exec(int cnt, char * save_buffer, char * buffer);
 int redirection(char *buffer){
   if(strstr(buffer, ">") != NULL)
     return 1;
@@ -25,7 +26,9 @@ int redirection(char *buffer){
 }
 
 int main(){
-  char arg[ARGSIZE][100];
+  char pipebuffer[BUFSIZE];
+  int cnt;
+
   char buffer[BUFSIZE];
   char save_buffer[BUFSIZE];
   int amper = 0;
@@ -37,6 +40,7 @@ int main(){
   char *command;
   char pipe_c;
   int i, j;
+  int status;
   char test[BUFSIZE];
   while(read(0, buffer,BUFSIZE)){
     strcpy(save_buffer, buffer);
@@ -94,110 +98,94 @@ int main(){
 	printf("newfile : %s\n", newfile);
       */
       if(strstr(buffer, "|")){
-	i = count(save_buffer, '|');
-	fildes = (int**)malloc(sizeof(int*)*i);
-	for(j = 0; j < i; j++)
-	  *(fildes+j) = (int *)malloc(sizeof(int)*2);
-
-	for(i = 0; i < count(save_buffer, '|')+1; i++){
-	  printf("i : %d\n", i);
-	  ptr = strtok(buffer, "|\n");
-
-	  for(j = 0; j < count(save_buffer, '|')-i; j++){
-	    ptr = strtok(NULL, "|\n");
-	  }
-	  pipe(fildes[i]);
-	  if(fork() == 0){
-
-	    /*
-	    if(i == count(save_buffer, '|')){
-	      close(1);
-	      dup(fildes[i-1][1]);
-	      close(fildes[i-1][0]);
-	      close(fildes[i-1][1]);
-	    }
-	    else if(i == 0){
-	      close(0);
-	      dup(fildes[i][0]);
-	      close(fildes[i][0]);
-	      close(fildes[i][1]);
-	    }
-	    else{
-	      close(0);
-	      dup(fildes[i-1][0]);
-	      close(fildes[i-1][0]);
-	      close(fildes[i-1][1]);
-	      close(1);
-	      dup(fildes[i][1]);
-	      close(fildes[i][0]);
-	      close(fildes[i][1]);
-	    }
-
-	    */
-	    sprintf(buffer, "%s", ptr);
-	    printf("%d buffer : %s\n", i, buffer);
-	    ptr = strtok(buffer, " ");
-	    printf("%d str : %s\n", i, ptr);
-	    j= 0;
-	    ptr = strtok(NULL, " ");
-	    while(ptr != NULL){
-	      sprintf(arg[j], "%s", ptr);
-	      printf("arg[%d] : %s\n", j, arg[j]);
-	      j++;
-	      ptr = strtok(NULL, " ");
-	    }
-
-	    //	    execve();
-	    exit(0);
-	  }
-	  sprintf(buffer, "%s", save_buffer);
-	  //	  pipe(fildes);
-	  
-	  /*
-	  if(fork() == 0){
-	    close(1);
-	    dup(fildes[1]);
-	    close(fildes[1]);
-	    close(fildes[0])
-	    }*/
-	  //	  wait(NULL);
-	}
-	for(j = 0; j < ARGSIZE; j++)
-	  free(fildes[j]);
-	free(fildes);
-
+	cnt = count(save_buffer, '|');
+	pipe_exec(cnt, save_buffer, buffer);
       }
-
     }
     fflush(stdin);
-    free(fildes);
+
+    for(j = 0; j < BUFSIZE; j++)
+      buffer[j] = '\0';
+  }
+}
+
+void pipe_exec(int cnt, char * save_buffer, char * buffer){
+  int fildes[cnt][2];
+  char * ptr;
+  char *arg[ARGSIZE];
+  char pipebuffer[BUFSIZE];
+  int i;
+  int j;
+
+  for(i = 0; i < cnt; i++)
+    pipe(fildes[i]);
+
+  for(i = 0; i < cnt+1; i++){
+    ptr = strtok(buffer, "|\n");
+
+    for(j = 0; j < cnt-i; j++){
+      ptr = strtok(NULL, "|\n");
+    }
+
+    //fprintf(stderr, "@@@[%d]ptr : %s\n", i, ptr);
+    if(fork() == 0){
+      printf("i : %d\n", i);
+      /* ls | grep 1 | grep 2*/
+
+      if(i == cnt){
+  	close(1);
+  	dup(fildes[i-1][1]);
+      }
+      else if(i == 0){
+  	close(0);
+  	dup(fildes[0][0]);
+      }
+      else{
+  	close(0);
+  	dup(fildes[i][0]);
+  	close(1);
+  	dup(fildes[i-1][1]);
+      }
+
+      sprintf(buffer, "%s", ptr);
+      ptr = strtok(buffer, " ");
+      j= 0;
+      while(ptr != NULL){
+  	arg[j] = ptr;
+  	j++;
+  	ptr = strtok(NULL, " ");
+      }
+      fprintf(stderr, "arg[0] : %s\n", arg[0]);
+      execvp(arg[0], arg);
+    }
+    sprintf(buffer, "%s", save_buffer);
   }
 }
 
 
 /*
-void pipe_exec(char *buffer, char *ptr){
+  void pipe_exec(char *buffer, char *ptr){
   int fd[2];
   char command[BUFSIZE];
 
   if(!ptr){
-    exit(0);
+  exit(0);
   }
   else{
-    pipe(fd);
+  pipe(fd);
 
-    if(fork() == 0){
-      sprintf(command, "/bin/%s", ptr);
-      close(1);
-      dup(fd[1]);
-      execve("/bin/")
-    }
-    printf("ptr : %s\n", ptr);
-    ptr = strtok(NULL, "| \n");
-    pipe_exec(buffer, ptr);
-    exit(0);
+  if(fork() == 0){
+  sprintf(command, "/bin/%s", ptr);
+  close(1);
+  dup(fd[1]);
+  execve("/bin/")
   }
-}
+  printf("ptr : %s\n", ptr);
+  ptr = strtok(NULL, "| \n");
+  pipe_exec(buffer, ptr);
+  exit(0);
+  }
+  }
 */
 
 int count(char *ptr, char c){
@@ -207,3 +195,4 @@ int count(char *ptr, char c){
       i++;
   return i;
 }
+
