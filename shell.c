@@ -4,10 +4,11 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#define BUFSIZE 2097152
-#define MAX_PATH 4096
+#define BUFSIZE 100
+#define MAX_PATH 100
 #define FMASK 0644
 #define ARGSIZE 10
+#define HISSIZE 100
 
 int count(char *ptr, char c);
 void reverse(char *b, char *save);
@@ -27,10 +28,10 @@ int redirection(char *buffer){
     return 0;
 }
 
-int main(){
+void shell(char * buffer, char (*history)[BUFSIZE], int history_index){
   int cnt;
   char *arg[ARGSIZE];
-  char buffer[BUFSIZE];
+
   char save_buffer[BUFSIZE];
   int amper = 0;
   int red;
@@ -43,48 +44,15 @@ int main(){
   int i, j;
   int status;
   char dir[BUFSIZE];
-  int semicnt;
-  int semi;
-  int issemi;
   char cmd[BUFSIZE];
-  /*
-  getcwd(dir, BUFSIZE);
-  printf("%s >> ", dir);
-  */
-  while(read(0, buffer,BUFSIZE)){
-    
+  char *str;
+  int cd = 0;
+  int his;
+
+
     strcpy(save_buffer, buffer);
 
-    issemi = 0;
-    semicnt = 1;
-
-    if(strstr(buffer, ";")){
-      issemi = 1;
-      ptr = strtok(buffer, ";");
-      i = 0;
-      while(ptr != NULL){
-	printf("buffer : %s\n", ptr);
-	ptr = strtok(NULL, ";");
-	i++;
-      }
-      semicnt = i-1;
-      strcpy(buffer, save_buffer);
-      
-    }
-
-      if(issemi == 1){
-	ptr = strtok(buffer, ";");
-	for(j = 0; j < semi; j++){
-	  printf("j : %d\n", j);
-	  ptr = strtok(NULL, ";");
-	}
-	strcpy(save_buffer, buffer);
-	printf("semi : %d\n", semi);
-	printf("save_buffer %s\n", save_buffer);
-	printf("semi buffer %s\n", buffer);
-      }
-
-    /* background */
+          /* background */
     if(strstr(buffer, "&") != NULL)
       amper = 1;
     else
@@ -95,7 +63,11 @@ int main(){
 
       ptr = strtok(buffer, " \n");
       strcpy(buffer, save_buffer);
-      if(strcmp(ptr, "cd") == 0){
+      if(strcmp(ptr, "cd") == 0)
+	cd = 1;
+      if(strcmp(ptr, "history") == 0)
+	his = 1;
+      if(cd ==1 ){
 	ptr = strtok(buffer, " \n");
 	ptr = strtok(NULL, " \n");
 	getcwd(dir, BUFSIZE);
@@ -107,10 +79,15 @@ int main(){
 	strcpy(buffer, save_buffer);
 
       }
+      else if(his == 1){
+	for(i = 0; i < history_index; i++){
+	  printf("\t%d %s\n", i, history[i]);
+	}
+      }
+
       /* redirection of IO */
       
       else if((red = redirection(buffer)) != 0){
-	printf("********redirection\n red : %d\n", red);
 	ptr = strtok(buffer, " ><!\n&");
 	i = 0;
 	while(ptr != NULL){
@@ -123,41 +100,82 @@ int main(){
 	  ptr = strtok(NULL, " ><!\n&");
 	sprintf(newfile, "%s%s", "./", ptr);
 	strcpy(buffer, save_buffer);
-	printf("newfile : %s\n", newfile);
 	redirect(buffer, newfile,red);
       }
       /* piping */
       else if(strstr(buffer, "|")){
-	printf("********piping\n");
 	cnt = count(save_buffer, '|');
 	pipe_exec(cnt, save_buffer, buffer);
       }
 
       else{
-	printf("********common\n");
+
 	if(fork() == 0){
 	  strcpy(buffer, save_buffer);
-	  ptr = strtok(buffer, " \n");
+	  ptr = strtok(buffer, " \n&");
 	  j = 0;
 	  while(ptr != NULL){
 	    arg[j] = ptr;
 	    j++;
 
-
-	    ptr = strtok(NULL, " \n");
+	    ptr = strtok(NULL, " \n&");
 	  }
 	  arg[j] = NULL;
 	  execvp(arg[0], arg);
+	  exit(0);
 	}
+
+	if(amper == 0)
+	  wait(NULL);
+
       }
       exit(0);
     }
     if(amper == 0)
       wait(NULL);
+
     fflush(stdin);
     for(j = 0; j < BUFSIZE; j++)
       buffer[j] = '\0';
-    //
+}
+
+int main(){
+  char buffer[BUFSIZE];
+  char semibuffer[BUFSIZE];
+  char *ptr;
+  char history[HISSIZE][BUFSIZE];
+  int history_index;
+  char dir[BUFSIZE];
+  getcwd(dir, BUFSIZE);
+  printf("%s $ ", dir);
+  fflush(stdout);
+  history_index = 0;
+  while(read(0, buffer,BUFSIZE)){
+    ptr = strtok(buffer, "\n");
+    strcpy(history[history_index], buffer);
+
+    strcpy(semibuffer, buffer);
+    if(strstr(buffer, ";")){
+    
+      strcpy(buffer, semibuffer);
+      ptr = strtok(semibuffer, ";");
+      //      strcpy(buffer, ptr);
+      while(ptr != NULL){
+	strcpy(buffer, ptr);
+	shell(buffer, history, history_index);
+	ptr = strtok(NULL, ";");
+      }
+      history_index++;
+    }
+
+    else{
+      shell(buffer, history, history_index);
+      history_index++;
+    }
+    getcwd(dir, BUFSIZE);
+    printf("%s $ ", dir);
+    fflush(stdout);
+    fflush(stdin);
   }
 }
 
@@ -167,6 +185,8 @@ void pipe_exec(int cnt, char * save_buffer, char *buffer){
   char *arg[ARGSIZE];
   int i;
   int j;
+  int cid, ccid;
+
 
   for(i = 0; i < cnt; i++)
     pipe(fildes[i]);
@@ -177,14 +197,16 @@ void pipe_exec(int cnt, char * save_buffer, char *buffer){
       ptr = strtok(NULL, "|&\n");
     }
 
-    if(fork() == 0){
+    if((cid=fork()) == 0){
       if(i == cnt){
   	close(1);
   	dup(fildes[i-1][1]);
       }
       else if(i == 0){
+	ccid = cid;
   	close(0);
   	dup(fildes[0][0]);
+	
       }
       else{
   	close(0);
@@ -209,10 +231,14 @@ void pipe_exec(int cnt, char * save_buffer, char *buffer){
       }
       arg[j] = NULL;
       execvp(arg[0], arg);
+      exit(0);
     }
 
     sprintf(buffer, "%s", save_buffer);
+
+
   }
+    waitpid(ccid, NULL, 0);
 }
 
 int count(char *ptr, char c){
